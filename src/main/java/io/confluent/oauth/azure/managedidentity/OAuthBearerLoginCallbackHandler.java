@@ -13,16 +13,22 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file is derived from code copied from Apache Kafka:
+ *
+ * clients/src/main/java/org/apache/kafka/common/security/oauthbearer/secured/OAuthBearerLoginCallbackHandler.java
  */
 
-package org.apache.kafka.common.security.oauthbearer.secured;
+package io.confluent.oauth.azure.managedidentity;
 
-import static org.apache.kafka.common.config.SaslConfigs.SASL_OAUTHBEARER_TOKEN_ENDPOINT_URL;
+import static org.apache.kafka.common.config.SaslConfigs.*;
 
 import java.io.IOException;
+import java.net.URL;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import javax.net.ssl.SSLSocketFactory;
 import javax.security.auth.callback.Callback;
 import javax.security.auth.callback.UnsupportedCallbackException;
 import javax.security.auth.login.AppConfigurationEntry;
@@ -37,10 +43,19 @@ import org.apache.kafka.common.security.auth.SaslExtensionsCallback;
 import org.apache.kafka.common.security.oauthbearer.OAuthBearerToken;
 import org.apache.kafka.common.security.oauthbearer.OAuthBearerTokenCallback;
 import org.apache.kafka.common.security.oauthbearer.internals.OAuthBearerClientInitialResponse;
+import org.apache.kafka.common.security.oauthbearer.secured.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
+ * This class is copied from Apache Kafka:
+ *
+ * clients/src/main/java/org/apache/kafka/common/security/oauthbearer/secured/OAuthBearerLoginCallbackHandler.java
+ *
+ * ... and modified to:
+ *
+ * - Create a custom <code>HttpAccessTokenRetriever</code> which works with the Azure IMDS to fetch OAuth tokens
+ *
  * <p>
  * <code>OAuthBearerLoginCallbackHandler</code> is an {@link AuthenticateCallbackHandler} that
  * accepts {@link OAuthBearerTokenCallback} and {@link SaslExtensionsCallback} callbacks to
@@ -183,7 +198,7 @@ public class OAuthBearerLoginCallbackHandler implements AuthenticateCallbackHand
     @Override
     public void configure(Map<String, ?> configs, String saslMechanism, List<AppConfigurationEntry> jaasConfigEntries) {
         moduleOptions = JaasOptionsUtils.getOptions(saslMechanism, jaasConfigEntries);
-        AccessTokenRetriever accessTokenRetriever = AccessTokenRetrieverFactory.create(configs, saslMechanism, moduleOptions);
+        AccessTokenRetriever accessTokenRetriever = createAccessTokenRetriever(configs, saslMechanism, moduleOptions);
         AccessTokenValidator accessTokenValidator = AccessTokenValidatorFactory.create(configs, saslMechanism);
         init(accessTokenRetriever, accessTokenValidator);
     }
@@ -205,6 +220,36 @@ public class OAuthBearerLoginCallbackHandler implements AuthenticateCallbackHand
         isInitialized = true;
     }
 
+    protected AccessTokenRetriever createAccessTokenRetriever(Map<String, ?> configs,
+        String saslMechanism,
+        Map<String, Object> jaasConfig) {
+        final ConfigurationUtils cu = new ConfigurationUtils(configs, saslMechanism);
+        final URL tokenEndpointUrl = cu.validateUrl(SASL_OAUTHBEARER_TOKEN_ENDPOINT_URL);
+
+        final JaasOptionsUtils jou = new JaasOptionsUtils(jaasConfig);
+        final String clientId = jou.validateString(CLIENT_ID_CONFIG);
+        final String clientSecret = jou.validateString(CLIENT_SECRET_CONFIG);
+        final String scope = jou.validateString(SCOPE_CONFIG, false);
+
+        SSLSocketFactory sslSocketFactory = null;
+
+        if (jou.shouldCreateSSLSocketFactory(tokenEndpointUrl))
+            sslSocketFactory = jou.createSSLSocketFactory();
+
+        io.confluent.oauth.HttpAccessTokenRetriever httpAccessTokenRetriever = new io.confluent.oauth.HttpAccessTokenRetriever(clientId,
+                clientSecret,
+                scope,
+                sslSocketFactory,
+                tokenEndpointUrl.toString(),
+                cu.validateLong(SASL_LOGIN_RETRY_BACKOFF_MS),
+                cu.validateLong(SASL_LOGIN_RETRY_BACKOFF_MAX_MS),
+                cu.validateInteger(SASL_LOGIN_CONNECT_TIMEOUT_MS, false),
+                cu.validateInteger(SASL_LOGIN_READ_TIMEOUT_MS, false),
+                "GET");
+
+        httpAccessTokenRetriever.getHeaders().put("Metadata", "true");
+        return httpAccessTokenRetriever;
+    }
     /*
      * Package-visible for testing.
      */

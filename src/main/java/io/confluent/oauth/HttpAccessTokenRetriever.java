@@ -13,9 +13,13 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file is derived from code copied from Apache Kafka:
+ *
+ * clients/src/main/java/org/apache/kafka/common/security/oauthbearer/secured/HttpAccessTokenRetriever.java
  */
 
-package org.apache.kafka.common.security.oauthbearer.secured;
+package io.confluent.oauth;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,7 +34,7 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
-import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
@@ -39,23 +43,25 @@ import java.util.concurrent.ExecutionException;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLSocketFactory;
 import org.apache.kafka.common.KafkaException;
-import org.apache.kafka.common.config.SaslConfigs;
+
+import org.apache.kafka.common.security.oauthbearer.secured.AccessTokenRetriever;
+import org.apache.kafka.common.security.oauthbearer.secured.Retry;
+import org.apache.kafka.common.security.oauthbearer.secured.UnretryableException;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * <code>HttpAccessTokenRetriever</code> is an {@link AccessTokenRetriever} that will
- * communicate with an OAuth/OIDC provider directly via HTTP to post client credentials
- * ({@link OAuthBearerLoginCallbackHandler#CLIENT_ID_CONFIG}/{@link OAuthBearerLoginCallbackHandler#CLIENT_SECRET_CONFIG})
- * to a publicized token endpoint URL
- * ({@link SaslConfigs#SASL_OAUTHBEARER_TOKEN_ENDPOINT_URL}).
+ * <code>HttpAccessTokenRetriever</code> is an {@link AccessTokenRetriever} copied and derived from Apacha Kafka
+ * {@link org.apache.kafka.common.security.oauthbearer.secured.HttpAccessTokenRetriever}.
+ *
+ * This version is designed to work with Azure Managed Identities via the link-local Instance Metadata Service (IMDS).
+ * This service does not require authentication, and while an id/secret config is required, it is ignored.  Other
+ * changes are:
+ * - Uses HTTP GET instead of POST and does not send a POST body.
+ * - Sets a static HTTP Header - Metadata: true .
  *
  * @see AccessTokenRetriever
- * @see OAuthBearerLoginCallbackHandler#CLIENT_ID_CONFIG
- * @see OAuthBearerLoginCallbackHandler#CLIENT_SECRET_CONFIG
- * @see OAuthBearerLoginCallbackHandler#SCOPE_CONFIG
- * @see SaslConfigs#SASL_OAUTHBEARER_TOKEN_ENDPOINT_URL
  */
 
 public class HttpAccessTokenRetriever implements AccessTokenRetriever {
@@ -111,6 +117,10 @@ public class HttpAccessTokenRetriever implements AccessTokenRetriever {
 
     private final Integer loginReadTimeoutMs;
 
+    private final String requestMethod;
+
+    private final Map<String, String> headers = new HashMap<>();
+
     public HttpAccessTokenRetriever(String clientId,
         String clientSecret,
         String scope,
@@ -119,7 +129,8 @@ public class HttpAccessTokenRetriever implements AccessTokenRetriever {
         long loginRetryBackoffMs,
         long loginRetryBackoffMaxMs,
         Integer loginConnectTimeoutMs,
-        Integer loginReadTimeoutMs) {
+        Integer loginReadTimeoutMs,
+        String requestMethod) {
         this.clientId = Objects.requireNonNull(clientId);
         this.clientSecret = Objects.requireNonNull(clientSecret);
         this.scope = scope;
@@ -129,6 +140,7 @@ public class HttpAccessTokenRetriever implements AccessTokenRetriever {
         this.loginRetryBackoffMaxMs = loginRetryBackoffMaxMs;
         this.loginConnectTimeoutMs = loginConnectTimeoutMs;
         this.loginReadTimeoutMs = loginReadTimeoutMs;
+        this.requestMethod = requestMethod;
     }
 
     /**
@@ -149,9 +161,12 @@ public class HttpAccessTokenRetriever implements AccessTokenRetriever {
     @Override
     public String retrieve() throws IOException {
         String authorizationHeader = formatAuthorizationHeader(clientId, clientSecret);
-        String requestBody = formatRequestBody(scope);
+        String requestBody = requestMethod == "GET" ? null : formatRequestBody(scope);
         Retry<String> retry = new Retry<>(loginRetryBackoffMs, loginRetryBackoffMaxMs);
-        Map<String, String> headers = Collections.singletonMap(AUTHORIZATION_HEADER, authorizationHeader);
+
+        final Map<String, String> requestHeaders = new HashMap<>(headers);
+        requestHeaders.put(AUTHORIZATION_HEADER, authorizationHeader);
+
 
         String responseBody;
 
@@ -165,7 +180,8 @@ public class HttpAccessTokenRetriever implements AccessTokenRetriever {
                     if (sslSocketFactory != null && con instanceof HttpsURLConnection)
                         ((HttpsURLConnection) con).setSSLSocketFactory(sslSocketFactory);
 
-                    return post(con, headers, requestBody, loginConnectTimeoutMs, loginReadTimeoutMs);
+                    con.setRequestMethod(requestMethod);
+                    return fetch(con, requestHeaders, requestBody, loginConnectTimeoutMs, loginReadTimeoutMs);
                 } catch (IOException e) {
                     throw new ExecutionException(e);
                 } finally {
@@ -183,7 +199,11 @@ public class HttpAccessTokenRetriever implements AccessTokenRetriever {
         return parseAccessToken(responseBody);
     }
 
-    public static String post(HttpURLConnection con,
+    public Map<String, String> getHeaders() {
+        return headers;
+    }
+
+    public static String fetch(HttpURLConnection con,
         Map<String, String> headers,
         String requestBody,
         Integer connectTimeoutMs,
@@ -199,8 +219,7 @@ public class HttpAccessTokenRetriever implements AccessTokenRetriever {
         Integer connectTimeoutMs,
         Integer readTimeoutMs)
         throws IOException, UnretryableException {
-        log.debug("handleInput - starting post for {}", con.getURL());
-        con.setRequestMethod("POST");
+        log.debug("handleInput - starting fetch for {}", con.getURL());
         con.setRequestProperty("Accept", "application/json");
 
         if (headers != null) {
