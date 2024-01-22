@@ -44,16 +44,17 @@ import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLSocketFactory;
 import org.apache.kafka.common.KafkaException;
 
-import org.apache.kafka.common.security.oauthbearer.secured.AccessTokenRetriever;
-import org.apache.kafka.common.security.oauthbearer.secured.Retry;
-import org.apache.kafka.common.security.oauthbearer.secured.UnretryableException;
+
+import org.apache.kafka.common.security.oauthbearer.internals.secured.AccessTokenRetriever;
+import org.apache.kafka.common.security.oauthbearer.internals.secured.Retry;
+import org.apache.kafka.common.security.oauthbearer.internals.secured.UnretryableException;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * <code>HttpAccessTokenRetriever</code> is an {@link AccessTokenRetriever} copied and derived from Apacha Kafka
- * {@link org.apache.kafka.common.security.oauthbearer.secured.HttpAccessTokenRetriever}.
+ * {@link org.apache.kafka.common.security.oauthbearer.internals.secured.HttpAccessTokenRetriever}.
  *
  * This version is designed to work with Azure Managed Identities via the link-local Instance Metadata Service (IMDS).
  * This service does not require authentication, and while an id/secret config is required, it is ignored.  Other
