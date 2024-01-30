@@ -43,7 +43,6 @@ import org.apache.kafka.common.security.auth.SaslExtensionsCallback;
 import org.apache.kafka.common.security.oauthbearer.OAuthBearerToken;
 import org.apache.kafka.common.security.oauthbearer.OAuthBearerTokenCallback;
 import org.apache.kafka.common.security.oauthbearer.internals.OAuthBearerClientInitialResponse;
-import org.apache.kafka.common.security.oauthbearer.OAuthBearerValidatorCallbackHandler;
 import org.apache.kafka.common.security.oauthbearer.internals.secured.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,7 +66,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>
  * The <code>OAuthBearerLoginCallbackHandler</code> is used on the client side to retrieve a JWT
- * and the {@link OAuthBearerValidatorCallbackHandler} is used on the broker to validate the JWT
+ * and the <code>OAuthBearerValidatorCallbackHandler</code> is used on the broker to validate the JWT
  * that was sent to it by the client to allow access. Both the brokers and clients will need to
  * be configured with their appropriate callback handlers and respective configuration for OAuth
  * functionality to work.
