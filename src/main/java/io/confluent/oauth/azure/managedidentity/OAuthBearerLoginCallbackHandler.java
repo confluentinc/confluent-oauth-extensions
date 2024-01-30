@@ -43,7 +43,8 @@ import org.apache.kafka.common.security.auth.SaslExtensionsCallback;
 import org.apache.kafka.common.security.oauthbearer.OAuthBearerToken;
 import org.apache.kafka.common.security.oauthbearer.OAuthBearerTokenCallback;
 import org.apache.kafka.common.security.oauthbearer.internals.OAuthBearerClientInitialResponse;
-import org.apache.kafka.common.security.oauthbearer.secured.*;
+import org.apache.kafka.common.security.oauthbearer.OAuthBearerValidatorCallbackHandler;
+import org.apache.kafka.common.security.oauthbearer.internals.secured.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
