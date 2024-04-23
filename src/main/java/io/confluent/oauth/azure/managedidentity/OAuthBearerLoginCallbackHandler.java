@@ -28,6 +28,7 @@ import java.net.URL;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import javax.net.ssl.SSLSocketFactory;
 import javax.security.auth.callback.Callback;
 import javax.security.auth.callback.UnsupportedCallbackException;
@@ -228,7 +229,7 @@ public class OAuthBearerLoginCallbackHandler implements AuthenticateCallbackHand
         isInitialized = true;
     }
 
-    protected AccessTokenRetriever createAccessTokenRetriever(Map<String, ?> configs,
+    public static AccessTokenRetriever createAccessTokenRetriever(Map<String, ?> configs,
         String saslMechanism,
         Map<String, Object> jaasConfig) {
         final ConfigurationUtils cu = new ConfigurationUtils(configs, saslMechanism);
@@ -245,13 +246,18 @@ public class OAuthBearerLoginCallbackHandler implements AuthenticateCallbackHand
         if (jou.shouldCreateSSLSocketFactory(tokenEndpointUrl))
             sslSocketFactory = jou.createSSLSocketFactory();
 
+        // make sure we have defaults since we don't get the properties for the schema registry case
+        long loginRetryBackoffMs = Optional.ofNullable(cu.validateLong(SASL_LOGIN_RETRY_BACKOFF_MS, false)).orElse(DEFAULT_SASL_LOGIN_RETRY_BACKOFF_MAX_MS);
+        long loginRetryBackoffMaxMs = Optional.ofNullable(cu.validateLong(SASL_LOGIN_RETRY_BACKOFF_MAX_MS, false)).orElse(DEFAULT_SASL_LOGIN_RETRY_BACKOFF_MAX_MS);
+
+
         io.confluent.oauth.HttpAccessTokenRetriever httpAccessTokenRetriever = new io.confluent.oauth.HttpAccessTokenRetriever(clientId,
                 clientSecret,
                 scope,
                 sslSocketFactory,
                 tokenEndpointUrl.toString(),
-                cu.validateLong(SASL_LOGIN_RETRY_BACKOFF_MS),
-                cu.validateLong(SASL_LOGIN_RETRY_BACKOFF_MAX_MS),
+                loginRetryBackoffMs,
+                loginRetryBackoffMaxMs,
                 cu.validateInteger(SASL_LOGIN_CONNECT_TIMEOUT_MS, false),
                 cu.validateInteger(SASL_LOGIN_READ_TIMEOUT_MS, false),
                 "GET",
