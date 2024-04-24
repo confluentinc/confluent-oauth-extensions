@@ -33,6 +33,7 @@ sasl.jaas.config= \
 		clientId='ignored' \
 		clientSecret='ignored' \
 		useWorkloadIdentity='true' \
+        scope='${CONFLUENT_CLOUD_APP_ID}/.default' \
 		extension_logicalCluster='lkc-xxxxxx' \
 		extension_identityPoolId='pool-xxxx';
 ```
@@ -43,7 +44,7 @@ Use with Schema Registry
 
 example:
 ```
-echo '{"make": "Ford", "model": "Mustang", "price": 10000}' |kafka-avro-console-producer \
+echo '{"make": "Ford", "model": "Mustang", "price": 10000}' | kafka-avro-console-producer \
   --bootstrap-server <bootstrap>.confluent.cloud:9092 \
   --property schema.registry.url=https://<registry>.confluent.cloud \
   --property bearer.auth.credentials.source='CUSTOM' \
