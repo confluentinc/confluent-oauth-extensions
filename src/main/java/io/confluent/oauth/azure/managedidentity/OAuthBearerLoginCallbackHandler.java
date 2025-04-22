@@ -246,7 +246,7 @@ public class OAuthBearerLoginCallbackHandler implements AuthenticateCallbackHand
                 cu.validateLong(SASL_LOGIN_RETRY_BACKOFF_MAX_MS),
                 cu.validateInteger(SASL_LOGIN_CONNECT_TIMEOUT_MS, false),
                 cu.validateInteger(SASL_LOGIN_READ_TIMEOUT_MS, false),
-                "GET");
+                "POST");
 
         httpAccessTokenRetriever.getHeaders().put("Metadata", "true");
         return httpAccessTokenRetriever;
