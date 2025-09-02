@@ -28,6 +28,7 @@ import java.net.URL;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import javax.net.ssl.SSLSocketFactory;
 import javax.security.auth.callback.Callback;
 import javax.security.auth.callback.UnsupportedCallbackException;
@@ -167,6 +168,7 @@ public class OAuthBearerLoginCallbackHandler implements AuthenticateCallbackHand
     public static final String CLIENT_ID_CONFIG = "clientId";
     public static final String CLIENT_SECRET_CONFIG = "clientSecret";
     public static final String SCOPE_CONFIG = "scope";
+    public static final String USE_WORKLOAD_IDENTITY_CONFIG = "useWorkloadIdentity";
 
     public static final String CLIENT_ID_DOC = "The OAuth/OIDC identity provider-issued " +
         "client ID to uniquely identify the service account to use for authentication for " +
@@ -182,9 +184,15 @@ public class OAuthBearerLoginCallbackHandler implements AuthenticateCallbackHand
         "clientcredentials grant type.";
 
     public static final String SCOPE_DOC = "The (optional) HTTP/HTTPS login request to the " +
-        "token endpoint (" + SASL_OAUTHBEARER_TOKEN_ENDPOINT_URL + ") may need to specify an " +
-        "OAuth \"scope\". If so, the " + SCOPE_CONFIG + " is used to provide the value to " +
-        "include with the login request.";
+            "token endpoint (" + SASL_OAUTHBEARER_TOKEN_ENDPOINT_URL + ") may need to specify an " +
+            "OAuth \"scope\". If so, the " + SCOPE_CONFIG + " is used to provide the value to " +
+            "include with the login request.";
+
+
+    public static final String USE_WORKLOAD_IDENTITY_DOC = "The (optional) HTTP/HTTPS login request to the " +
+            "token endpoint (" + SASL_OAUTHBEARER_TOKEN_ENDPOINT_URL + ") may need to specify an " +
+            "'Authorization' header of the Workload Identity. If so, the " + USE_WORKLOAD_IDENTITY_CONFIG +
+            " must be set to true";
 
     private static final String EXTENSION_PREFIX = "extension_";
 
@@ -221,7 +229,7 @@ public class OAuthBearerLoginCallbackHandler implements AuthenticateCallbackHand
         isInitialized = true;
     }
 
-    protected AccessTokenRetriever createAccessTokenRetriever(Map<String, ?> configs,
+    public static AccessTokenRetriever createAccessTokenRetriever(Map<String, ?> configs,
         String saslMechanism,
         Map<String, Object> jaasConfig) {
         final ConfigurationUtils cu = new ConfigurationUtils(configs, saslMechanism);
@@ -231,22 +239,29 @@ public class OAuthBearerLoginCallbackHandler implements AuthenticateCallbackHand
         final String clientId = jou.validateString(CLIENT_ID_CONFIG);
         final String clientSecret = jou.validateString(CLIENT_SECRET_CONFIG);
         final String scope = jou.validateString(SCOPE_CONFIG, false);
+        final boolean useWorkloadIdentity = jou.validateString(USE_WORKLOAD_IDENTITY_CONFIG).equalsIgnoreCase("true");
 
         SSLSocketFactory sslSocketFactory = null;
 
         if (jou.shouldCreateSSLSocketFactory(tokenEndpointUrl))
             sslSocketFactory = jou.createSSLSocketFactory();
 
+        // make sure we have defaults since we don't get the properties for the schema registry case
+        long loginRetryBackoffMs = Optional.ofNullable(cu.validateLong(SASL_LOGIN_RETRY_BACKOFF_MS, false)).orElse(DEFAULT_SASL_LOGIN_RETRY_BACKOFF_MAX_MS);
+        long loginRetryBackoffMaxMs = Optional.ofNullable(cu.validateLong(SASL_LOGIN_RETRY_BACKOFF_MAX_MS, false)).orElse(DEFAULT_SASL_LOGIN_RETRY_BACKOFF_MAX_MS);
+
+
         io.confluent.oauth.HttpAccessTokenRetriever httpAccessTokenRetriever = new io.confluent.oauth.HttpAccessTokenRetriever(clientId,
                 clientSecret,
                 scope,
                 sslSocketFactory,
                 tokenEndpointUrl.toString(),
-                cu.validateLong(SASL_LOGIN_RETRY_BACKOFF_MS),
-                cu.validateLong(SASL_LOGIN_RETRY_BACKOFF_MAX_MS),
+                loginRetryBackoffMs,
+                loginRetryBackoffMaxMs,
                 cu.validateInteger(SASL_LOGIN_CONNECT_TIMEOUT_MS, false),
                 cu.validateInteger(SASL_LOGIN_READ_TIMEOUT_MS, false),
-                "GET");
+                "GET",
+                useWorkloadIdentity);
 
         httpAccessTokenRetriever.getHeaders().put("Metadata", "true");
         return httpAccessTokenRetriever;

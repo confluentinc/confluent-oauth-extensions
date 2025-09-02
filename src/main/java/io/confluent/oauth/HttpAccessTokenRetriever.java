@@ -21,6 +21,10 @@
 
 package io.confluent.oauth;
 
+import com.azure.core.credential.AccessToken;
+import com.azure.core.credential.TokenCredential;
+import com.azure.core.credential.TokenRequestContext;
+import com.azure.identity.CredentialUnavailableException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
@@ -42,6 +46,8 @@ import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLSocketFactory;
+
+import io.confluent.oauth.azure.managedidentity.utils.WorkloadIdentityUtils;
 import org.apache.kafka.common.KafkaException;
 
 
@@ -122,6 +128,8 @@ public class HttpAccessTokenRetriever implements AccessTokenRetriever {
 
     private final Map<String, String> headers = new HashMap<>();
 
+    private final boolean useWorkloadIdentity;
+
     public HttpAccessTokenRetriever(String clientId,
         String clientSecret,
         String scope,
@@ -131,9 +139,11 @@ public class HttpAccessTokenRetriever implements AccessTokenRetriever {
         long loginRetryBackoffMaxMs,
         Integer loginConnectTimeoutMs,
         Integer loginReadTimeoutMs,
-        String requestMethod) {
+        String requestMethod,
+        boolean useWorkloadIdentity) {
         this.clientId = Objects.requireNonNull(clientId);
         this.clientSecret = Objects.requireNonNull(clientSecret);
+        this.useWorkloadIdentity = useWorkloadIdentity;
         this.scope = scope;
         this.sslSocketFactory = sslSocketFactory;
         this.tokenEndpointUrl = Objects.requireNonNull(tokenEndpointUrl);
@@ -161,17 +171,29 @@ public class HttpAccessTokenRetriever implements AccessTokenRetriever {
 
     @Override
     public String retrieve() throws IOException {
-        String authorizationHeader = formatAuthorizationHeader(clientId, clientSecret);
-        String requestBody = requestMethod == "GET" ? null : formatRequestBody(scope);
-        Retry<String> retry = new Retry<>(loginRetryBackoffMs, loginRetryBackoffMaxMs);
-
-        final Map<String, String> requestHeaders = new HashMap<>(headers);
-        requestHeaders.put(AUTHORIZATION_HEADER, authorizationHeader);
-
-
         String responseBody;
 
         try {
+            // TODO: should we use the AZURE_FEDERATED_TOKEN_FILE variable to enable workload identity? And AZURE_AUTHORITY_HOST to use for the endpoint url?
+            if (this.useWorkloadIdentity){
+                log.debug("using workload identity to get token");
+                // AccessToken https://github.com/Azure/azure-sdk-for-java/blob/main/sdk/core/azure-core/src/main/java/com/azure/core/credential/AccessToken.java
+                TokenCredential workloadIdentityCredential = WorkloadIdentityUtils.createWorkloadIdentityCredentialFromEnvironment();
+                TokenRequestContext tokenRequestContext = WorkloadIdentityUtils.createTokenRequestContextFromEnvironment(scope);
+                AccessToken azureIdentityAccessToken = workloadIdentityCredential.getTokenSync(tokenRequestContext);
+                log.trace("useWorkloadIdentity token, got token from AzureAD: '{}'", azureIdentityAccessToken.getToken());
+                return azureIdentityAccessToken.getToken();
+            }
+
+
+            String authorizationHeader = formatAuthorizationHeader(clientId, clientSecret);
+            String requestBody = requestMethod == "GET" ? null : formatRequestBody(scope);
+            Retry<String> retry = new Retry<>(loginRetryBackoffMs, loginRetryBackoffMaxMs);
+
+            final Map<String, String> requestHeaders = new HashMap<>(headers);
+            requestHeaders.put(AUTHORIZATION_HEADER, authorizationHeader);
+
+
             responseBody = retry.execute(() -> {
                 HttpURLConnection con = null;
 
@@ -195,6 +217,9 @@ public class HttpAccessTokenRetriever implements AccessTokenRetriever {
                 throw (IOException) e.getCause();
             else
                 throw new KafkaException(e.getCause());
+        } catch (CredentialUnavailableException ex){
+            log.error("Error getting token from AzureAD: {}", ex.getMessage());
+            throw new KafkaException(ex);
         }
 
         return parseAccessToken(responseBody);
